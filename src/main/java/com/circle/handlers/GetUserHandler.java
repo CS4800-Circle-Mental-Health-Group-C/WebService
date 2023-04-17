@@ -22,6 +22,8 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 public class GetUserHandler implements RequestStreamHandler {
   private static final String USERS_TABLE_NAME = System.getenv("USERS_TABLE_NAME");
 
+  // TODO: Update to use APIGatewayProxyRequestEvent and APIGatewayProxyResponseEvent
+  // TODO: Update to use LambdaLogger
   @Override
   public void handleRequest(InputStream inputStream, OutputStream outputStream, Context context)
       throws IOException {

@@ -1,36 +1,35 @@
 package com.circle.handlers;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-
-import org.json.JSONObject;
-import org.json.JSONTokener;
-
 import com.amazonaws.services.lambda.runtime.Context;
-import com.amazonaws.services.lambda.runtime.RequestStreamHandler;
+import com.amazonaws.services.lambda.runtime.LambdaLogger;
+import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
 import com.circle.models.User;
 import com.google.gson.Gson;
-
+import com.google.gson.JsonParseException;
+import java.util.Collections;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 
-public class SaveUserHandler implements RequestStreamHandler {
+public class SaveUserHandler
+    implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
   private static final String USERS_TABLE_NAME = System.getenv("USERS_TABLE_NAME");
 
   @Override
-  public void handleRequest(InputStream inputStream, OutputStream outputStream, Context context)
-      throws IOException {
+  public APIGatewayProxyResponseEvent handleRequest(
+      APIGatewayProxyRequestEvent request, Context context) {
 
-    // Read the request from the input stream
-    BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
-    JSONObject responseJson = new JSONObject();
+    APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent();
+
+    LambdaLogger logger = context.getLogger();
+
+    String body = request.getBody();
+
+    logger.log("body: " + body);
 
     // Create a DynamoDbClient object
     DynamoDbClient ddb = DynamoDbClient.builder().region(Region.US_WEST_1).build();
@@ -40,42 +39,37 @@ public class SaveUserHandler implements RequestStreamHandler {
     // Parse the JSON input
     // If the request is valid, then create a new item in the table
     try {
-      JSONTokener tokener = new JSONTokener(reader);
-      JSONObject event = new JSONObject(tokener);
 
       // If the request body is not empty, then create a new item in the table
-      if (event.get("body") != null) {
+      if (body != null) {
         User user = new User();
         Gson gson = new Gson();
-        User request = gson.fromJson((String) event.get("body"), User.class);
-        user.setId(request.getId());
-        user.setName(request.getName());
-        user.setEmail(request.getEmail());
-        user.setPhone(request.getPhone());
+        User requestObj = gson.fromJson(body, User.class);
+        user.setId(requestObj.getId());
+        user.setName(requestObj.getName());
+        user.setEmail(requestObj.getEmail());
+        user.setPhone(requestObj.getPhone());
 
         DynamoDbTable<User> userTable =
             enhancedClient.table(USERS_TABLE_NAME, TableSchema.fromClass(User.class));
 
         userTable.putItem(user);
+
+        return response
+            .withHeaders(Collections.singletonMap("Content-Type", "application/json"))
+            .withStatusCode(200)
+            .withBody(gson.toJson(user));
+      } else {
+        return response
+            .withHeaders(Collections.singletonMap("Content-Type", "application/json"))
+            .withStatusCode(403)
+            .withBody("Invalid request body");
       }
 
-      JSONObject responseBody = new JSONObject();
-      responseBody.put("message", "User saved successfully");
-
-      JSONObject headerJson = new JSONObject();
-      headerJson.put("x-custom-header", "my custom header value");
-
-      responseJson.put("statusCode", "200");
-      responseJson.put("headers", headerJson);
-      responseJson.put("body", responseBody.toString());
-
-    } catch (Exception pex) {
-      responseJson.put("statusCode", "400");
-      responseJson.put("exception", pex);
+    } catch (JsonParseException ex) {
+      response.setStatusCode(400);
+      response.setBody("Failed to parse JSON: " + ex.getMessage());
+      return response;
     }
-
-    OutputStreamWriter writer = new OutputStreamWriter(outputStream, "UTF-8");
-    writer.write(responseJson.toString());
-    writer.close();
   }
 }
